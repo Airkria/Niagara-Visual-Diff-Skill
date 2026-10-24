@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Niagara Visual Diff</title>
+  <style>
+    :root { color-scheme: dark; --bg:#17191c; --panel:#222529; --panel2:#292d32; --line:#3b4046; --text:#e5e7eb; --muted:#a4abb4; --blue:#3b82f6; --green:#70c66b; --orange:#f59e0b; --red:#ef6a68; }
+    * { box-sizing:border-box } body { margin:0; background:var(--bg); color:var(--text); font:14px/1.45 "Segoe UI",sans-serif }
+    button,textarea { font:inherit } button { cursor:pointer; color:var(--text); background:#343940; border:1px solid #4a5058; border-radius:5px; padding:7px 10px }
+    button:hover { background:#414750 } header { display:flex; align-items:center; justify-content:space-between; gap:20px; padding:16px 22px; border-bottom:1px solid var(--line); background:#202327 }
+    h1 { margin:0 0 4px; font-size:18px } .sub,.muted { color:var(--muted) } .badge { display:inline-block; border:1px solid #59616a; border-radius:12px; padding:2px 8px; color:#d1d5db; font-size:12px }
+    .layout { display:grid; grid-template-columns:minmax(320px, 43%) 1fr; min-height:calc(100vh - 75px) } aside { padding:18px; border-right:1px solid var(--line) } main { padding:22px; max-width:900px }
+    h2 { margin:0 0 12px; font-size:15px } h3 { margin:19px 0 8px; color:#bdc4cc; font-size:12px; letter-spacing:.04em; text-transform:uppercase }
+    .target,.stage,.detail,.note { background:var(--panel); border:1px solid var(--line); border-radius:7px; margin-bottom:10px; overflow:hidden }
+    .target { padding:12px } .stage-title { padding:8px 10px; background:var(--panel2); color:#d4dae1; font-weight:600 }
+    .module { padding:7px 11px; border-top:1px solid #34383d; color:#c3c8ce } .change { display:block; width:100%; text-align:left; padding:9px 10px; border:0; border-top:1px solid #34383d; border-radius:0; background:#25292e }
+    .change.selected { background:#263b58; box-shadow:inset 3px 0 var(--blue) } .change .action { font-weight:600 } .change small { display:block; color:var(--muted); margin-top:3px }
+    .state { float:right; color:var(--orange); font-size:11px; text-transform:uppercase } .state.verified { color:var(--green) } .state.failed { color:var(--red) }
+    .detail { padding:16px } .detail h2 { font-size:18px } .grid { display:grid; grid-template-columns:120px 1fr; gap:8px 12px; margin:14px 0 } .label { color:var(--muted) }
+    pre { white-space:pre-wrap; overflow-wrap:anywhere; margin:0; padding:10px; background:#171a1d; border-radius:5px; font:13px/1.5 Consolas,monospace }
+    textarea { width:100%; min-height:100px; resize:vertical; color:var(--text); background:#171a1d; border:1px solid var(--line); border-radius:5px; padding:10px }
+    .actions { display:flex; gap:8px; flex-wrap:wrap; margin-top:10px } .warning { color:#f6c36b; background:#392e1c; border:1px solid #66502b; border-radius:5px; padding:9px 11px; margin-bottom:12px }
+    .empty { color:var(--muted); padding:20px 10px; text-align:center } footer { color:var(--muted); padding:10px 22px; border-top:1px solid var(--line); font-size:12px }
+    @media (max-width:760px) { .layout { grid-template-columns:1fr } aside { border-right:0; border-bottom:1px solid var(--line) } header { align-items:flex-start; flex-direction:column } }
+  </style>
+</head>
+<body>
+  <header>
+    <div><h1 id="title">Niagara 变更提案</h1><div class="sub" id="target-line"></div></div>
+    <div><span class="badge" id="version"></span> <span class="badge">提案页面不会修改 UE 资产</span></div>
+  </header>
+  <div class="layout">
+    <aside>
+      <h2>发射器堆栈与变更</h2>
+      <div class="target" id="emitter-info"></div>
+      <div id="stack"></div>
+      <h3>待讨论的变更</h3>
+      <div id="changes"></div>
+    </aside>
+    <main>
+      <div id="example-warning" class="warning" hidden>示例数据：这不是实际修改建议，也没有应用到 Niagara 资产。</div>
+      <section class="detail" id="detail"><div class="empty">选择一项变更以查看原因和复现方式。</div></section>
+      <section class="note" style="padding:14px">
+        <h2>针对当前变更的反馈</h2>
+        <div class="muted" id="feedback-target">先选择一项变更，再写问题或调整要求。</div>
+        <textarea id="comment" placeholder="例如：我在 UE 中找不到这个模块，当前版本显示的名称是……"></textarea>
+        <div class="actions"><button id="copy-feedback">复制反馈文本</button><button id="copy-json">复制反馈 JSON</button></div>
+      </section>
+      <h3>说明</h3><div id="notes" class="muted"></div>
+    </main>
+  </div>
+  <footer>Niagara Visual Diff · 按变更 ID 讨论；只有重新读取 Unreal 中的实际状态后，变更才会标记为已验证。</footer>
+  <script>
+    const proposal = /*__NIAGARA_PROPOSAL__*/ null;
+    const $ = (id) => document.getElementById(id);
+    const esc = (v) => String(v ?? "—").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+    const fmt = (v) => v && typeof v === "object" ? JSON.stringify(v, null, 2) : String(v ?? "—");
+    let selected = null;
+    if (!proposal) { document.body.innerHTML = "<p style='padding:24px'>No proposal data was embedded.</p>"; throw new Error("Missing proposal data"); }
+    const target = proposal.target || {};
+    $("title").textContent = proposal.title || "Niagara 变更提案";
+    $("target-line").textContent = `${target.system || "Unknown System"}  /  ${target.emitter || "Unknown Emitter"}`;
+    $("version").textContent = proposal.engineVersion || "Engine version unknown";
+    $("emitter-info").innerHTML = `<strong>${esc(target.emitter || "Emitter")}</strong><div class="muted">${esc(target.simulationTarget || "Simulation target unknown")}</div>`;
+    $("example-warning").hidden = !((proposal.changes || []).some(c => c.exampleOnly));
+    const stack = $("stack");
+    for (const stage of (proposal.stacks || [])) {
+      const box = document.createElement("section"); box.className = "stage";
+      box.innerHTML = `<div class="stage-title">${esc(stage.stage)}</div>`;
+      if (!(stage.modules || []).length) box.insertAdjacentHTML("beforeend", `<div class="module muted">（空）</div>`);
+      else for (const module of stage.modules) box.insertAdjacentHTML("beforeend", `<div class="module">${esc(module)}</div>`);
+      stack.appendChild(box);
+    }
+    const changes = proposal.changes || [];
+    const list = $("changes");
+    if (!changes.length) list.innerHTML = `<div class="empty">当前没有待讨论的变更。</div>`;
+    for (const change of changes) {
+      const btn = document.createElement("button"); btn.className = "change"; btn.dataset.id = change.id;
+      btn.innerHTML = `<span class="state ${esc(change.status)}">${esc(change.status || "planned")}</span><span class="action">${esc(change.action)}</span><small>${esc(change.stage)} · ${esc(change.module)}${change.input ? " · " + esc(change.input) : ""}</small>`;
+      btn.addEventListener("click", () => selectChange(change)); list.appendChild(btn);
+    }
+    function selectChange(change) {
+      selected = change;
+      document.querySelectorAll(".change").forEach(b => b.classList.toggle("selected", b.dataset.id === change.id));
+      $("feedback-target").textContent = `反馈将关联到 ${change.id} · ${change.module}`;
+      const detail = $("detail");
+      detail.innerHTML = `<span class="badge">${esc(change.status || "planned")}</span> <span class="badge">${esc(change.stage)}</span><h2 style="margin-top:12px">${esc(change.action)} · ${esc(change.module)}</h2>
+        <div class="grid"><div class="label">参数</div><div>${esc(change.input || "—")}</div><div class="label">修改前</div><pre>${esc(fmt(change.before))}</pre><div class="label">修改后</div><pre>${esc(fmt(change.after))}</pre><div class="label">为什么改</div><div>${esc(change.reason)}</div><div class="label">引擎中复现</div><div>${esc(change.reproduce)}</div></div>`;
+    }
+    $("notes").textContent = (proposal.notes || []).join(" · ") || "—";
+    function feedback() {
+      if (!selected) return null;
+      const comment = $("comment").value.trim();
+      return { changeId: selected.id, target: `${target.system || ""}/${target.emitter || ""}`, comment };
+    }
+    async function copy(text) {
+      try { await navigator.clipboard.writeText(text); alert("已复制，可以粘贴回 Niagara 对话。"); }
+      catch (_) { const area = document.createElement("textarea"); area.value = text; document.body.appendChild(area); area.select(); document.execCommand("copy"); area.remove(); alert("已复制，可以粘贴回 Niagara 对话。"); }
+    }
+    $("copy-feedback").addEventListener("click", () => { const f=feedback(); if (!f) return alert("请先选择一项变更。"); copy(`针对变更 ${f.changeId}（${f.target}）：${f.comment || "请继续解释这项修改。"}`); });
+    $("copy-json").addEventListener("click", () => { const f=feedback(); if (!f) return alert("请先选择一项变更。"); copy(JSON.stringify(f, null, 2)); });
+    if (changes.length) selectChange(changes[0]);
+  </script>
+</body>
+</html>
