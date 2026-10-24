@@ -1,0 +1,36 @@
+{
+  "schemaVersion": 1,
+  "title": "Terrain Brush Point Preview — proposal format example",
+  "engineVersion": "5.8",
+  "target": {
+    "system": "NS_TerrainBrush",
+    "emitter": "CompletelyEmpty",
+    "simulationTarget": "GPUComputeSim"
+  },
+  "stacks": [
+    { "stage": "Emitter Spawn", "modules": [] },
+    { "stage": "Emitter Update", "modules": ["EmitterState", "SpawnParticlesInGrid"] },
+    { "stage": "Particle Spawn", "modules": ["InitializeParticle", "GridLocation"] },
+    { "stage": "Particle Update", "modules": [] },
+    { "stage": "Renderers", "modules": ["Sprite Renderer"] }
+  ],
+  "changes": [
+    {
+      "id": "example-grid-density",
+      "stage": "Emitter Update",
+      "action": "set-input",
+      "module": "SpawnParticlesInGrid",
+      "input": "X Count / Y Count",
+      "before": "64 / 64 (4,096 particles per grid plane)",
+      "after": "32 / 32 (1,024 particles per grid plane)",
+      "reason": "Illustrates how a proposed performance change is shown. Reducing density changes visual sampling and must be tested against the intended terrain preview.",
+      "reproduce": "Select Spawn Particles in Grid in Emitter Update, then edit X Count and Y Count.",
+      "status": "planned",
+      "exampleOnly": true
+    }
+  ],
+  "notes": [
+    "This is an illustrative UI fixture, not a recommendation and not an instruction to modify the user's emitter.",
+    "The live observed emitter uses X Count 64, Y Count 64, Z Count 1, and Spawn Time 0."
+  ]
+}
