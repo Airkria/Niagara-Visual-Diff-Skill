@@ -1,0 +1,4 @@
+interface:
+  display_name: "Niagara Visual Diff"
+  short_description: "Review Niagara edits visually before and after applying them"
+  default_prompt: "Inspect the current Niagara system and show a visual change proposal before editing it."
